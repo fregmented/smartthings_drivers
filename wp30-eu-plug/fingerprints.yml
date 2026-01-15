@@ -1,0 +1,7 @@
+zigbeeManufacturer:
+  - manufacturer: "_TZ3000_c7nc9w3c"
+    model: "TS011F"
+    deviceProfileName: "wp30-eu-plug"
+  - manufacturer: "_TZ3210_c7nc9w3c"
+    model: "TS011F"
+    deviceProfileName: "wp30-eu-plug"
