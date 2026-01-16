@@ -1,0 +1,7 @@
+name: "Tuya Temp/Humidity Sensor"
+packageKey: "tuya-temp-humidity-sensor"
+description: "SmartThings Edge driver template for Tuya temperature/humidity sensors."
+permissions:
+  zigbee: {}
+vendorSupportInformation: "https://github.com/fregmented/smartthings_drivers"
+version: "1.0.0"

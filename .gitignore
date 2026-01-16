@@ -99,3 +99,5 @@ $RECYCLE.BIN/
 personal-tuya-devices/
 zigbee-herdsman-converters/
 AGENT.md
+release.sh
+debug.sh

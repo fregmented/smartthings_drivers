@@ -4,7 +4,7 @@ This repository stores SmartThings Edge drivers. It includes drivers for devices
 
 ## Install
 
-- SmartThings channel: https://callaway.smartthings.com/channels/166e0e2b-a2df-4a66-8894-d6db2d4eab8f
+- SmartThings channel: https://bestow-regional.api.smartthings.com/invite/q0jmrwAZeaM1
 
 ## Contents
 
