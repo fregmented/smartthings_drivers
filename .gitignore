@@ -97,3 +97,5 @@ $RECYCLE.BIN/
 # End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,macos,windows,linux
 
 personal-tuya-devices/
+zigbee-herdsman-converters/
+AGENT.md

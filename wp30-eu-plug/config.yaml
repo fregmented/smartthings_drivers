@@ -1,7 +1,7 @@
 name: "WP30-EU Plug"
 packageKey: "wp30-eu-plug"
-description: "SmartThings Edge driver template for WP30-EU plug."
+description: "SmartThings Edge driver for LELLKI WP30-EU (power monitoring)."
 permissions:
   zigbee: {}
 vendorSupportInformation: "https://github.com/fregmented/smartthings_drivers"
-version: "0.0.1"
+version: "1.0.0"

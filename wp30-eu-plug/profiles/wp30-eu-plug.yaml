@@ -24,3 +24,27 @@ components:
         version: 1
 categories:
   - name: "SmartPlug"
+preferences:
+  - name: "logLevel"
+    title: "Log level"
+    description: "Set the driver logging level."
+    required: false
+    preferenceType: "enumeration"
+    definition:
+      options:
+        "ERROR": "Error"
+        "WARN": "Warn"
+        "INFO": "Info"
+        "DEBUG": "Debug"
+      default: "INFO"
+  - name: "powerOutageMemory"
+    title: "Power outage behavior"
+    description: "Recover state after power outage."
+    required: false
+    preferenceType: "enumeration"
+    definition:
+      options:
+        "off": "Off"
+        "on": "On"
+        "restore": "Restore"
+      default: "restore"
