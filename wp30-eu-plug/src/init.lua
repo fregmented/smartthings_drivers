@@ -130,6 +130,62 @@ local function log_value_change(device, component_id, event)
   end
 end
 
+local CHILD_SWITCH_PREF = "exposeChildSwitches"
+local CHILD_SWITCH_PROFILE = "wp30-eu-plug-child-switch"
+local CHILD_SWITCH_ENDPOINTS = { 2, 3 }
+
+local function is_child_device(device)
+  return device and device.parent_assigned_child_key ~= nil
+end
+
+local function child_key_for_endpoint(endpoint)
+  return string.format("%02X", endpoint)
+end
+
+local function get_child_device(device, endpoint)
+  if not device or not device.get_child_by_parent_assigned_key then
+    return nil
+  end
+  return device:get_child_by_parent_assigned_key(child_key_for_endpoint(endpoint))
+end
+
+local function should_create_child_devices(device)
+  return device and device.preferences and device.preferences[CHILD_SWITCH_PREF] == true
+end
+
+local function create_child_devices(driver, device)
+  if not driver or not device or is_child_device(device) then
+    return
+  end
+  if not should_create_child_devices(device) then
+    return
+  end
+  if not device.get_child_by_parent_assigned_key then
+    log_info(device, "Child devices require firmware 45.1+")
+    return
+  end
+  local base_label = device.label or "WP30-EU Plug"
+  for _, endpoint in ipairs(CHILD_SWITCH_ENDPOINTS) do
+    local child_key = child_key_for_endpoint(endpoint)
+    local existing = device:get_child_by_parent_assigned_key(child_key)
+    if not existing then
+      local suffix = endpoint == 2 and "L2" or "L3"
+      local label = string.format("%s %s", base_label, suffix)
+      driver:try_create_device({
+        type = "EDGE_CHILD",
+        device_network_id = nil,
+        parent_assigned_child_key = child_key,
+        label = label,
+        profile = CHILD_SWITCH_PROFILE,
+        parent_device_id = device.id,
+        manufacturer = driver.NAME,
+        model = CHILD_SWITCH_PROFILE,
+        vendor_provided_label = label,
+      })
+    end
+  end
+end
+
 local COMPONENT_TO_ENDPOINT = {
   main = 1,
   l2 = 2,
@@ -208,6 +264,15 @@ local function component_for_endpoint(endpoint)
   return ENDPOINT_TO_COMPONENT[endpoint] or "main"
 end
 
+local function emit_switch_event_for_endpoint(device, endpoint, event)
+  local component_id = component_for_endpoint(endpoint)
+  emit_component_event(device, component_id, event)
+  local child = get_child_device(device, endpoint)
+  if child then
+    child:emit_event(event)
+  end
+end
+
 local function set_persisted_field(device, key, value)
   if value == nil then
     return
@@ -250,8 +315,7 @@ end
 local function on_off_attr_handler(_, device, value, zb_rx)
   log_debug(device, "Zigbee RX OnOff: " .. format_zcl_body(zb_rx))
   local endpoint = zb_rx.address_header.src_endpoint.value
-  local component_id = component_for_endpoint(endpoint)
-  emit_component_event(device, component_id, switch_event(value.value))
+  emit_switch_event_for_endpoint(device, endpoint, switch_event(value.value))
 end
 
 local function power_on_behavior_attr_handler(_, device, value, zb_rx)
@@ -441,16 +505,28 @@ local function refresh_handler(_, device)
   refresh_power_on_behavior(device)
 end
 
-local function switch_handler(_, device, command)
-  local endpoint = endpoint_for_component(command.component)
-  local is_on = command.command == "on"
-  log_debug(device, string.format("Switch command %s on %s (endpoint %s)", command.command, command.component, tostring(endpoint)))
-  local command_tx = is_on and zcl_clusters.OnOff.commands.On(device) or zcl_clusters.OnOff.commands.Off(device)
-  send_zigbee_message(device, command_tx:to_endpoint(endpoint), "Zigbee TX OnOff")
+local function resolve_switch_target(device, component_id)
+  if is_child_device(device) and device.get_parent_device then
+    local parent = device:get_parent_device()
+    local endpoint = tonumber(device.parent_assigned_child_key, 16)
+    if parent and endpoint then
+      return parent, endpoint
+    end
+  end
+  return device, endpoint_for_component(component_id)
+end
 
-  local write_tx = build_onoff_write_message(device, endpoint, data_types.Boolean(is_on))
-  send_zigbee_message(device, write_tx, "Zigbee TX OnOff write (auto)")
-  schedule_switch_refresh(device, 1)
+local function switch_handler(_, device, command)
+  local target_device, endpoint = resolve_switch_target(device, command.component)
+  local component_id = component_for_endpoint(endpoint)
+  local is_on = command.command == "on"
+  log_debug(device, string.format("Switch command %s on %s (endpoint %s)", command.command, component_id, tostring(endpoint)))
+  local command_tx = is_on and zcl_clusters.OnOff.commands.On(target_device) or zcl_clusters.OnOff.commands.Off(target_device)
+  send_zigbee_message(target_device, command_tx:to_endpoint(endpoint), "Zigbee TX OnOff")
+
+  local write_tx = build_onoff_write_message(target_device, endpoint, data_types.Boolean(is_on))
+  send_zigbee_message(target_device, write_tx, "Zigbee TX OnOff write (auto)")
+  schedule_switch_refresh(target_device, 1)
 end
 
 local function apply_power_outage_memory(device, requested)
@@ -486,7 +562,10 @@ local function schedule_measurement_poll(device)
   end)
 end
 
-local function device_init(_, device)
+local function device_init(driver, device)
+  if is_child_device(device) then
+    return
+  end
   log.error("Driver version: " .. DRIVER_VERSION)
   apply_log_level(device)
   device:set_component_to_endpoint_fn(function(_, component_id)
@@ -495,13 +574,23 @@ local function device_init(_, device)
   device:set_endpoint_to_component_fn(function(_, endpoint)
     return component_for_endpoint(endpoint)
   end)
+  if device.set_find_child then
+    device:set_find_child(function(parent, endpoint)
+      return get_child_device(parent, endpoint)
+    end)
+  end
+  create_child_devices(driver, device)
   send_magic_packet(device)
   schedule_switch_refresh(device, 1)
   schedule_measurement_poll(device)
 end
 
-local function device_added(_, device)
+local function device_added(driver, device)
+  if is_child_device(device) then
+    return
+  end
   apply_log_level(device)
+  create_child_devices(driver, device)
   send_magic_packet(device)
   refresh_switches(device)
   schedule_switch_refresh(device, 1)
@@ -510,6 +599,9 @@ local function device_added(_, device)
 end
 
 local function do_configure(driver, device)
+  if is_child_device(device) then
+    return
+  end
   apply_log_level(device)
   local hub_eui = driver.environment_info.hub_zigbee_eui
   send_magic_packet(device)
@@ -546,7 +638,10 @@ local function do_configure(driver, device)
   refresh_power_on_behavior(device)
 end
 
-local function info_changed(_, device, _, args)
+local function info_changed(driver, device, _, args)
+  if is_child_device(device) then
+    return
+  end
   apply_log_level(device)
   local level = normalize_log_level(device.preferences and device.preferences.logLevel)
   log_info(device, "Log level set to " .. level)
@@ -554,6 +649,10 @@ local function info_changed(_, device, _, args)
   local new_pref = device.preferences and device.preferences.powerOutageMemory
   if new_pref and new_pref ~= old_prefs.powerOutageMemory then
     apply_power_outage_memory(device, new_pref)
+  end
+  local new_child_pref = device.preferences and device.preferences[CHILD_SWITCH_PREF]
+  if new_child_pref == true and new_child_pref ~= old_prefs[CHILD_SWITCH_PREF] then
+    create_child_devices(driver, device)
   end
 end
 

@@ -22,6 +22,7 @@ Capabilities
 Preferences
 - logLevel: driver logging level
 - powerOutageMemory: recover state after power outage (off/on/restore)
+- exposeChildSwitches: create child devices for L2/L3 switch endpoints
 
 Presentation
 If the app shows the switches as disabled, apply the custom device presentation:

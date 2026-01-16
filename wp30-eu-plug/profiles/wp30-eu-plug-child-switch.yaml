@@ -1,0 +1,8 @@
+name: "wp30-eu-plug-child-switch"
+components:
+  - id: "main"
+    capabilities:
+      - id: "switch"
+        version: 1
+categories:
+  - name: "Switch"

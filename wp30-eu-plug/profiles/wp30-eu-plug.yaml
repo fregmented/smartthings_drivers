@@ -48,3 +48,10 @@ preferences:
         "on": "On"
         "restore": "Restore"
       default: "restore"
+  - name: "exposeChildSwitches"
+    title: "Expose L2/L3 as child devices"
+    description: "Create child switch devices for endpoints 2 and 3."
+    required: false
+    preferenceType: "boolean"
+    definition:
+      default: false
