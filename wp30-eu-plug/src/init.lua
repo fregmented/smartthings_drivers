@@ -134,6 +134,13 @@ local CHILD_SWITCH_PREF = "exposeChildSwitches"
 local CHILD_SWITCH_PROFILE = "wp30-eu-plug-child-switch"
 local CHILD_SWITCH_ENDPOINTS = { 2, 3 }
 
+local function switch_event_from_state(value)
+  if value == true or value == 1 or value == "on" then
+    return capabilities.switch.switch.on()
+  end
+  return capabilities.switch.switch.off()
+end
+
 local function is_child_device(device)
   return device and device.parent_assigned_child_key ~= nil
 end
@@ -147,6 +154,26 @@ local function get_child_device(device, endpoint)
     return nil
   end
   return device:get_child_by_parent_assigned_key(child_key_for_endpoint(endpoint))
+end
+
+local function get_parent_device_from_child(driver, device)
+  if not is_child_device(device) then
+    return nil
+  end
+  if device.get_parent_device then
+    local ok, parent = pcall(device.get_parent_device, device)
+    if ok and parent then
+      return parent
+    end
+  end
+  if driver and device.parent_device_id then
+    for _, candidate in ipairs(driver:get_devices()) do
+      if candidate.id == device.parent_device_id then
+        return candidate
+      end
+    end
+  end
+  return nil
 end
 
 local function should_create_child_devices(device)
@@ -273,6 +300,44 @@ local function emit_switch_event_for_endpoint(device, endpoint, event)
   end
 end
 
+local send_zigbee_message
+
+local function sync_child_switch_state(driver, device)
+  local parent = get_parent_device_from_child(driver, device)
+  if not parent then
+    return
+  end
+  local endpoint = tonumber(device.parent_assigned_child_key, 16)
+  if not endpoint then
+    return
+  end
+  local component_id = component_for_endpoint(endpoint)
+  if parent.get_latest_state then
+    local ok, state = pcall(parent.get_latest_state, parent, component_id, capabilities.switch.ID, "switch")
+    if ok and state ~= nil then
+      device:emit_event(switch_event_from_state(state))
+    end
+  end
+  local read_tx = zcl_clusters.OnOff.attributes.OnOff:read(parent):to_endpoint(endpoint)
+  send_zigbee_message(parent, read_tx, "Zigbee TX OnOff read (child sync)")
+end
+
+local function mark_device_online(device)
+  if device and device.online then
+    pcall(device.online, device)
+  end
+end
+
+local function child_init(driver, device)
+  mark_device_online(device)
+  sync_child_switch_state(driver, device)
+end
+
+local function child_added(driver, device)
+  mark_device_online(device)
+  sync_child_switch_state(driver, device)
+end
+
 local function set_persisted_field(device, key, value)
   if value == nil then
     return
@@ -302,8 +367,7 @@ local function scaled_value(raw, multiplier, divisor)
 end
 
 local function switch_event(value)
-  local is_on = value == true or value == 1
-  return is_on and capabilities.switch.switch.on() or capabilities.switch.switch.off()
+  return switch_event_from_state(value)
 end
 
 local function update_field_handler(field_key)
@@ -378,7 +442,7 @@ local function energy_attr_handler(_, device, value, zb_rx)
   end
 end
 
-local function send_zigbee_message(device, message, label)
+send_zigbee_message = function(device, message, label)
   if not message then
     return
   end
@@ -564,6 +628,7 @@ end
 
 local function device_init(driver, device)
   if is_child_device(device) then
+    child_init(driver, device)
     return
   end
   log.error("Driver version: " .. DRIVER_VERSION)
@@ -587,6 +652,7 @@ end
 
 local function device_added(driver, device)
   if is_child_device(device) then
+    child_added(driver, device)
     return
   end
   apply_log_level(device)
